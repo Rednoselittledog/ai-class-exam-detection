@@ -10,8 +10,6 @@ import json
 import base64
 import cv2
 import numpy as np
-from io import BytesIO
-from PIL import Image
 
 # Constants (from OMRChecker)
 MAX_COSINE_THRESHOLD = 0.6  # Relaxed from 0.35 to handle slightly distorted rectangles
