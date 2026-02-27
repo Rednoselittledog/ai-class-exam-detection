@@ -245,10 +245,10 @@ export default function Step3Review({
         <div className="flex flex-col gap-3">
           <button
             onClick={handleSave}
-            disabled={isSaving || !examName || fields.length === 0 || isDuplicateName || validationErrors.length > 0}
+            disabled={isSaving || saveStatus === 'success' || !examName || fields.length === 0 || isDuplicateName || validationErrors.length > 0}
             className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-500 disabled:bg-gray-700 disabled:cursor-not-allowed transition-colors font-medium text-lg"
           >
-            {isSaving ? 'กำลังบันทึก...' : 'บันทึกไปยัง Supabase'}
+            {isSaving ? 'กำลังบันทึก...' : saveStatus === 'success' ? 'บันทึกแล้ว ✓' : 'บันทึกไปยัง Supabase'}
           </button>
 
           {saveStatus === 'success' && (

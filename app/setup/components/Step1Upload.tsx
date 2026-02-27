@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 
 interface Step1UploadProps {
-  onImageLoad: (image: HTMLImageElement, file: File) => void
+  onImageLoad: (image: HTMLImageElement, file: File, croppedDataUrl?: string) => void
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
@@ -69,13 +69,16 @@ export default function Step1Upload({ onImageLoad }: Step1UploadProps) {
 
     const reader = new FileReader()
     reader.onload = async (e) => {
-      let imageDataUrl = e.target?.result as string
+      const originalDataUrl = e.target?.result as string
+      let imageDataUrl = originalDataUrl
+      let croppedDataUrl: string | undefined = undefined
 
       // Auto-crop if enabled
       if (autoCropEnabled) {
         try {
           setIsProcessing(true)
-          imageDataUrl = await cropImage(imageDataUrl)
+          imageDataUrl = await cropImage(originalDataUrl)
+          croppedDataUrl = imageDataUrl  // Save cropped version
         } catch (error) {
           console.warn('Auto-crop failed, using original image:', error)
           setError('ไม่สามารถครอบรูปอัตโนมัติได้ กำลังใช้รูปต้นฉบับ')
@@ -95,7 +98,7 @@ export default function Step1Upload({ onImageLoad }: Step1UploadProps) {
         }
 
         setIsProcessing(false)
-        onImageLoad(img, file)
+        onImageLoad(img, file, croppedDataUrl)
       }
       img.onerror = () => {
         setIsProcessing(false)

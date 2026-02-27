@@ -10,29 +10,47 @@ export default function SetupPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [uploadedImage, setUploadedImage] = useState<HTMLImageElement | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [croppedImageDataUrl, setCroppedImageDataUrl] = useState<string | null>(null)
   const [canvasSize, setCanvasSize] = useState<[number, number]>([0, 0])
   const [fields, setFields] = useState<DrawnField[]>([])
   const [examName, setExamName] = useState('')
 
-  const handleImageLoad = (image: HTMLImageElement, file: File) => {
+  const handleImageLoad = (image: HTMLImageElement, file: File, croppedDataUrl?: string) => {
     setUploadedImage(image)
     setImageFile(file)
+    setCroppedImageDataUrl(croppedDataUrl || null)
     setCanvasSize([image.width, image.height])
     setCurrentStep(2)
   }
 
   const handleSaveToSupabase = async () => {
-    if (!imageFile) {
+    if (!imageFile && !croppedImageDataUrl) {
       throw new Error('No image file selected')
     }
 
-    // Upload image to Supabase Storage
-    const fileExt = imageFile.name.split('.').pop()
-    // Use timestamp only to avoid non-ASCII characters in filename
-    const fileName = `exam-${Date.now()}.${fileExt}`
+    // Convert cropped image data URL to File if available, otherwise use original
+    let fileToUpload: File = imageFile!
+    let fileName = `exam-${Date.now()}.png`
+
+    if (croppedImageDataUrl) {
+      // Convert base64 to Blob then to File
+      const base64Data = croppedImageDataUrl.split(',')[1]
+      const byteCharacters = atob(base64Data)
+      const byteNumbers = new Array(byteCharacters.length)
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+      }
+      const byteArray = new Uint8Array(byteNumbers)
+      const blob = new Blob([byteArray], { type: 'image/png' })
+      fileToUpload = new File([blob], fileName, { type: 'image/png' })
+    } else {
+      // Use original file extension
+      const fileExt = imageFile!.name.split('.').pop()
+      fileName = `exam-${Date.now()}.${fileExt}`
+    }
 
     const formData = new FormData()
-    formData.append('file', imageFile)
+    formData.append('file', fileToUpload)
     formData.append('fileName', fileName)
 
     const uploadResponse = await fetch('/api/upload', {
