@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { DrawnField } from '@/lib/types'
 import Step1Upload from './components/Step1Upload'
 import Step2Annotate from './components/Step2Annotate'
-import Step3Review from './components/Step3Review'
+import Step3ReviewNew from './components/Step3ReviewNew'
 
 export default function SetupPage() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -23,7 +23,7 @@ export default function SetupPage() {
     setCurrentStep(2)
   }
 
-  const handleSaveToSupabase = async () => {
+  const handleSaveToSupabase = async (answerKey: Record<string, any>) => {
     if (!imageFile && !croppedImageDataUrl) {
       throw new Error('No image file selected')
     }
@@ -83,7 +83,7 @@ export default function SetupPage() {
       name: examName,
       canvas_size: canvasSize,
       fields: fieldsJson,
-      answer_key: {},
+      answer_key: answerKey,
       image_url: publicUrl
     }
 
@@ -161,11 +161,13 @@ export default function SetupPage() {
           )}
 
           {currentStep === 3 && (
-            <Step3Review
+            <Step3ReviewNew
               examName={examName}
               onExamNameChange={setExamName}
               canvasSize={canvasSize}
               fields={fields}
+              imageFile={imageFile}
+              croppedImageDataUrl={croppedImageDataUrl}
               onSave={handleSaveToSupabase}
             />
           )}

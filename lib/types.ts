@@ -13,12 +13,14 @@ export interface ExamFields {
   [key: string]: Field
 }
 
+// Answer key types
+export type AnswerKeyValue = string[] | string 
 export interface Exam {
   id?: string
   name: string
   canvas_size: [number, number]
   fields: ExamFields
-  answer_key?: Record<string, unknown>
+  answer_key: Record<string, AnswerKeyValue> // field_id -> answer(s)
   image_url?: string
   created_at?: string
   updated_at?: string
@@ -27,4 +29,16 @@ export interface Exam {
 export interface DrawnField extends Field {
   id: string
   selected?: boolean
+}
+
+// Submission types
+export interface Submission {
+  id?: string
+  exam_id: string
+  image_url: string
+  field_values: Record<string, AnswerKeyValue> // field_id -> student's answer(s)
+  score: number // OMR score only
+  total: number // Total possible score
+  created_at?: string
+  updated_at?: string
 }

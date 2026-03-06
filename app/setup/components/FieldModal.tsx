@@ -14,19 +14,16 @@ export default function FieldModal({ isOpen, onClose, onSave, initialData }: Fie
   const [fieldName, setFieldName] = useState('')
   const [fieldType, setFieldType] = useState<FieldType>('ฝน')
   const [rotation, setRotation] = useState<RotationDegree>(0)
-  const [hasAnswer, setHasAnswer] = useState(false)
 
   useEffect(() => {
     if (initialData) {
       setFieldName(initialData.name)
       setFieldType(initialData.type)
       setRotation(initialData.rotate)
-      setHasAnswer(initialData.has_answer === 1)
     } else {
       setFieldName('')
       setFieldType('ฝน')
       setRotation(0)
-      setHasAnswer(false)
     }
   }, [initialData, isOpen])
 
@@ -38,7 +35,7 @@ export default function FieldModal({ isOpen, onClose, onSave, initialData }: Fie
       name: fieldName,
       type: fieldType,
       rotate: rotation,
-      has_answer: hasAnswer ? 1 : 0
+      has_answer: fieldType === 'ฝน' ? 1 : 0  // ฝน=1, ช่องข้อมูล=0
     })
   }
 
@@ -72,9 +69,12 @@ export default function FieldModal({ isOpen, onClose, onSave, initialData }: Fie
               onChange={(e) => setFieldType(e.target.value as FieldType)}
               className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="ฝน">ฝน</option>
-              <option value="ข้อเขียน">ข้อเขียน</option>
+              <option value="ฝน">ฝน (มีเฉลย)</option>
+              <option value="ข้อเขียน">ช่องข้อมูล (ไม่มีเฉลย)</option>
             </select>
+            <p className="text-xs text-gray-400 mt-1">
+              {fieldType === 'ฝน' ? '✓ จะตรวจจับเฉลยด้วย OMR' : 'ℹ️ จะแสกนข้อมูลด้วย OCR แต่ไม่มีเฉลยให้เปรียบเทียบ'}
+            </p>
           </div>
 
           <div>
@@ -91,19 +91,6 @@ export default function FieldModal({ isOpen, onClose, onSave, initialData }: Fie
               <option value={180}>180°</option>
               <option value={270}>270°</option>
             </select>
-          </div>
-
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="hasAnswer"
-              checked={hasAnswer}
-              onChange={(e) => setHasAnswer(e.target.checked)}
-              className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
-            />
-            <label htmlFor="hasAnswer" className="ml-2 text-sm text-gray-300">
-              มีเฉลย
-            </label>
           </div>
 
           <div className="flex gap-3 pt-2">

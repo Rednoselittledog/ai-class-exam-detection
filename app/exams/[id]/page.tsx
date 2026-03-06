@@ -1,28 +1,31 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Exam, Field } from '@/lib/types'
+import { Exam, Submission } from '@/lib/types'
 
-export default function ExamViewPage() {
+export default function ExamDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const examId = params.id as string
 
   const [exam, setExam] = useState<Exam | null>(null)
+  const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
+  const [showFieldOverlay, setShowFieldOverlay] = useState(true)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
-  const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899']
+  useEffect(() => {
+    fetchExam()
+    fetchSubmissions()
+  }, [examId])
 
-  const fetchExam = useCallback(async () => {
+  const fetchExam = async () => {
     try {
-      const response = await fetch(`/api/exams/${params.id}`)
-      if (!response.ok) {
-        throw new Error('Failed to fetch exam')
-      }
+      const response = await fetch(`/api/exams/${examId}`)
+      if (!response.ok) throw new Error('Failed to fetch exam')
       const { data } = await response.json()
       setExam(data)
     } catch (err) {
@@ -30,93 +33,33 @@ export default function ExamViewPage() {
     } finally {
       setLoading(false)
     }
-  }, [params.id])
+  }
 
-  useEffect(() => {
-    fetchExam()
-  }, [fetchExam])
-
-  const drawCanvas = useCallback(() => {
-    if (!exam || !exam.image_url) return
-
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      canvas.width = img.width
-      canvas.height = img.height
-
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-
-      // Draw image
-      ctx.drawImage(img, 0, 0)
-
-      // Draw fields
-      const fieldsArray = Object.entries(exam.fields)
-      fieldsArray.forEach(([fieldId, field], index) => {
-        const [x1, y1, x2, y2] = field.location
-        const color = colors[index % colors.length]
-        const isSelected = fieldId === selectedFieldId
-
-        // Draw rectangle
-        ctx.strokeStyle = isSelected ? '#ffff00' : color
-        ctx.lineWidth = isSelected ? 3 : 2
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
-
-        // Fill with semi-transparent color
-        ctx.fillStyle = color + '40'
-        ctx.fillRect(x1, y1, x2 - x1, y2 - y1)
-
-        // Draw badge with number
-        const badgeSize = 24
-        ctx.fillStyle = color
-        ctx.fillRect(x1, y1 - badgeSize, badgeSize, badgeSize)
-        ctx.fillStyle = '#ffffff'
-        ctx.font = '12px sans-serif'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(String(index + 1), x1 + badgeSize / 2, y1 - badgeSize / 2)
-
-        // Draw label
-        ctx.fillStyle = color
-        const labelWidth = ctx.measureText(field.name).width + 8
-        ctx.fillRect(x1 + badgeSize, y1 - badgeSize, labelWidth, badgeSize)
-        ctx.fillStyle = '#ffffff'
-        ctx.textAlign = 'left'
-        ctx.fillText(field.name, x1 + badgeSize + 4, y1 - badgeSize / 2)
-      })
+  const fetchSubmissions = async () => {
+    try {
+      const response = await fetch(`/api/submissions?exam_id=${examId}`)
+      if (!response.ok) throw new Error('Failed to fetch submissions')
+      const { data } = await response.json()
+      setSubmissions(data || [])
+    } catch (err) {
+      console.error('Error fetching submissions:', err)
     }
-    img.src = exam.image_url
-  }, [exam, selectedFieldId, colors])
+  }
 
-  useEffect(() => {
-    drawCanvas()
-  }, [drawCanvas])
+  const handleDelete = async () => {
+    try {
+      const response = await fetch(`/api/exams/${examId}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) throw new Error('Failed to delete exam')
+      router.push('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete')
+    }
+  }
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!exam) return
-
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const scaleX = canvas.width / rect.width
-    const scaleY = canvas.height / rect.height
-
-    const x = (e.clientX - rect.left) * scaleX
-    const y = (e.clientY - rect.top) * scaleY
-
-    // Find clicked field
-    const fieldsArray = Object.entries(exam.fields)
-    const clickedField = fieldsArray.find(([_, field]) => {
-      const [x1, y1, x2, y2] = field.location
-      return x >= x1 && x <= x2 && y >= y1 && y <= y2
-    })
-
-    setSelectedFieldId(clickedField ? clickedField[0] : null)
+  const handleExport = (format: 'csv' | 'excel') => {
+    window.open(`/api/submissions/export?exam_id=${examId}&format=${format}`, '_blank')
   }
 
   if (loading) {
@@ -129,135 +72,195 @@ export default function ExamViewPage() {
 
   if (error || !exam) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
         <div className="text-center">
-          <div className="text-red-400 text-xl mb-4">เกิดข้อผิดพลาด: {error || 'ไม่พบข้อสอบ'}</div>
-          <Link
-            href="/exams"
-            className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
-          >
-            กลับไปหน้ารายการ
+          <p className="text-red-400 text-xl mb-4">เกิดข้อผิดพลาด: {error || 'ไม่พบข้อสอบ'}</p>
+          <Link href="/" className="text-blue-400 hover:text-blue-300">
+            กลับหน้าหลัก
           </Link>
         </div>
       </div>
     )
   }
 
-  const fieldsArray = Object.entries(exam.fields)
+  const fieldsArray = Object.entries(exam.fields).map(([id, field]) => ({
+    id,
+    ...field
+  }))
+
+  const fieldsWithAnswer = fieldsArray.filter(f => f.has_answer === 1)
+  const totalQuestions = fieldsWithAnswer.reduce((sum, field) => {
+    const answer = exam.answer_key[field.id]
+    return sum + (Array.isArray(answer) ? answer.length : 0)
+  }, 0)
 
   return (
     <div className="min-h-screen bg-gray-950 py-8 px-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <Link
-              href="/exams"
-              className="text-blue-400 hover:text-blue-300 text-sm mb-2 inline-block"
-            >
-              ← กลับไปหน้ารายการ
-            </Link>
-            <h1 className="text-4xl font-bold text-white mb-2">
-              {exam.name}
-            </h1>
-            <p className="text-gray-400">
-              {fieldsArray.length} ฟิลด์ · {exam.canvas_size[0]} × {exam.canvas_size[1]} px
-            </p>
-          </div>
+        <div className="flex justify-between items-center mb-6">
+          <Link href="/" className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600">
+            ← กลับหน้าหลัก
+          </Link>
           <button
-            onClick={() => router.push('/exams')}
-            className="px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium"
+            onClick={() => setDeleteConfirm(true)}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
           >
-            ปิด
+            ลบข้อสอบ
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex gap-6">
-          {/* Canvas */}
-          <div className="flex-1">
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              {exam.image_url ? (
-                <>
-                  <canvas
-                    ref={canvasRef}
-                    onClick={handleCanvasClick}
-                    className="border border-gray-700 rounded-lg max-w-full h-auto bg-gray-900 cursor-pointer"
-                  />
-                  <p className="text-sm text-gray-400 mt-2">
-                    คลิกที่ฟิลด์เพื่อดูรายละเอียด
-                  </p>
-                </>
-              ) : (
-                <div className="text-gray-400 text-center py-12">
-                  ไม่มีรูปภาพ
-                </div>
-              )}
+        <div className="grid lg:grid-cols-2 gap-6 mb-8">
+          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-white">รูปภาพข้อสอบ</h2>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showFieldOverlay}
+                  onChange={(e) => setShowFieldOverlay(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm text-gray-300">แสดงฟิลด์</span>
+              </label>
             </div>
+            <img src={exam.image_url} alt={exam.name} className="w-full" />
           </div>
 
-          {/* Fields List */}
-          <div className="w-80">
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-bold mb-4 text-white">
-                รายการฟิลด์ ({fieldsArray.length})
-              </h3>
-
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                {fieldsArray.length === 0 && (
-                  <p className="text-gray-500 text-sm text-center py-8">ไม่มีฟิลด์</p>
-                )}
-                {fieldsArray.map(([fieldId, field], index) => (
-                  <div
-                    key={fieldId}
-                    onClick={() => setSelectedFieldId(fieldId)}
-                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                      fieldId === selectedFieldId
-                        ? 'bg-gray-700 border-2 border-yellow-500'
-                        : 'bg-gray-900 border-2 border-transparent hover:bg-gray-700'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <div
-                        className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                        style={{ backgroundColor: colors[index % colors.length] }}
-                      >
-                        {index + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white font-medium truncate">{field.name}</p>
-                        <p className="text-gray-400 text-xs mt-1">
-                          ประเภท: {field.type}
-                        </p>
-                        <p className="text-gray-400 text-xs">
-                          มุม: {field.rotate}° | เฉลย: {field.has_answer ? 'ใช่' : 'ไม่'}
-                        </p>
-                        <p className="text-gray-500 text-xs mt-1">
-                          [{field.location.join(', ')}]
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <div className="space-y-6">
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h1 className="text-2xl font-bold text-white mb-4">{exam.name}</h1>
+              <p>ฟิลด์: {fieldsArray.length} | เฉลย: {fieldsWithAnswer.length}</p>
             </div>
-
-            {/* JSON Export */}
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 mt-4">
-              <h3 className="text-sm font-bold mb-2 text-white">ข้อมูล JSON</h3>
-              <button
-                onClick={() => {
-                  const json = JSON.stringify(exam, null, 2)
-                  navigator.clipboard.writeText(json)
-                  alert('คัดลอก JSON สำเร็จ!')
-                }}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors text-sm"
-              >
-                คัดลอก JSON
-              </button>
-            </div>
+            <Link
+              href={`/exams/${examId}/test`}
+              className="block w-full px-6 py-4 bg-green-600 text-white rounded-lg text-center text-lg"
+            >
+              🎯 ตรวจข้อสอบ
+            </Link>
           </div>
         </div>
+
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-white">ผลการตรวจ ({submissions.length})</h2>
+            {submissions.length > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleExport('csv')}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 text-sm"
+                >
+                  📄 Export CSV
+                </button>
+                <button
+                  onClick={() => handleExport('excel')}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm"
+                >
+                  📊 Export Excel
+                </button>
+              </div>
+            )}
+          </div>
+          {submissions.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">ยังไม่มีการตรวจ</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gray-400 border-b border-gray-700">
+                    <th className="py-3 px-2 text-left sticky left-0 bg-gray-800">#</th>
+                    <th className="py-3 px-2 text-left">วันที่</th>
+                    {/* Dynamic field columns */}
+                    {fieldsArray.map((field) => (
+                      <th key={field.id} className="py-3 px-2 text-left">
+                        {field.name}
+                        <br />
+                        <span className="text-xs text-gray-500">({field.type})</span>
+                      </th>
+                    ))}
+                    <th className="py-3 px-2 text-center">คะแนน</th>
+                    <th className="py-3 px-2 text-center sticky right-0 bg-gray-800">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-300">
+                  {submissions.map((sub, i) => (
+                    <tr key={sub.id} className="border-b border-gray-700 hover:bg-gray-700/50">
+                      <td className="py-3 px-2 text-center sticky left-0 bg-gray-800">{i + 1}</td>
+                      <td className="py-3 px-2 whitespace-nowrap">
+                        {new Date(sub.created_at!).toLocaleDateString('th-TH', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </td>
+                      {/* Dynamic field values */}
+                      {fieldsArray.map((field) => {
+                        const value = sub.field_values[field.id]
+                        let displayValue = ''
+
+                        if (Array.isArray(value)) {
+                          // OMR field - wrap array
+                          displayValue = value.join(', ')
+                        } else if (typeof value === 'string') {
+                          // OCR field or parsed text
+                          try {
+                            const parsed = JSON.parse(value)
+                            displayValue = parsed.text || value
+                          } catch {
+                            displayValue = value
+                          }
+                        } else {
+                          displayValue = value ? String(value) : '-'
+                        }
+
+                        return (
+                          <td key={field.id} className="py-3 px-2 max-w-xs">
+                            <div className="break-words line-clamp-2" title={displayValue}>
+                              {displayValue || '-'}
+                            </div>
+                          </td>
+                        )
+                      })}
+                      <td className="py-3 px-2 text-center font-semibold">
+                        {sub.score}/{sub.total}
+                        <br />
+                        <span className="text-xs text-gray-400">
+                          ({sub.total > 0 ? ((sub.score / sub.total) * 100).toFixed(0) : 0}%)
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-center sticky right-0 bg-gray-800">
+                        <button
+                          onClick={() => router.push(`/exams/${examId}/test?edit=${sub.id}`)}
+                          className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-500 text-xs"
+                        >
+                          ✏️ แก้ไข
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {deleteConfirm && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg max-w-md">
+              <h3 className="text-xl font-bold text-white mb-4">ยืนยันการลบ</h3>
+              <p className="text-gray-300 mb-6">ลบ "{exam.name}"?</p>
+              <div className="flex gap-3">
+                <button onClick={() => setDeleteConfirm(false)} className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg">
+                  ยกเลิก
+                </button>
+                <button onClick={handleDelete} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg">
+                  ลบ
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
