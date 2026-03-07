@@ -4,12 +4,13 @@ import { createClient } from '@/lib/supabase'
 // PATCH - Update existing submission
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const body = await request.json()
     const { field_values, score, total } = body
-    const submissionId = params.id
+    const submissionId = id
 
     if (!submissionId) {
       return NextResponse.json(
@@ -50,10 +51,11 @@ export async function PATCH(
 // DELETE - Delete submission
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const submissionId = params.id
+    const { id } = await params
+    const submissionId = id
 
     if (!submissionId) {
       return NextResponse.json(
