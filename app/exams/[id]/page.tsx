@@ -4,14 +4,18 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Exam, Submission } from '@/lib/types'
+import { formatAnswerForDisplay } from '@/lib/utils/field-helpers'
 
 export default function ExamDetailPage() {
   const params = useParams()
   const router = useRouter()
   const examId = params.id as string
 
+  // State: Data
   const [exam, setExam] = useState<Exam | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
+
+  // State: UI control
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showFieldOverlay, setShowFieldOverlay] = useState(true)
@@ -42,7 +46,7 @@ export default function ExamDetailPage() {
       const { data } = await response.json()
       setSubmissions(data || [])
     } catch (err) {
-      console.error('Error fetching submissions:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch submissions')
     }
   }
 
@@ -89,10 +93,6 @@ export default function ExamDetailPage() {
   }))
 
   const fieldsWithAnswer = fieldsArray.filter(f => f.has_answer === 1)
-  const totalQuestions = fieldsWithAnswer.reduce((sum, field) => {
-    const answer = exam.answer_key[field.id]
-    return sum + (Array.isArray(answer) ? answer.length : 0)
-  }, 0)
 
   return (
     <div className="min-h-screen bg-gray-950 py-8 px-4">
@@ -101,12 +101,20 @@ export default function ExamDetailPage() {
           <Link href="/" className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600">
             ← กลับหน้าหลัก
           </Link>
-          <button
-            onClick={() => setDeleteConfirm(true)}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
-          >
-            ลบข้อสอบ
-          </button>
+          <div className="flex gap-2">
+            <Link
+              href={`/setup/edit/${examId}`}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500"
+            >
+              ✏️ แก้ไขข้อสอบ
+            </Link>
+            <button
+              onClick={() => setDeleteConfirm(true)}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
+            >
+              ลบข้อสอบ
+            </button>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6 mb-8">
@@ -197,27 +205,12 @@ export default function ExamDetailPage() {
                       {/* Dynamic field values */}
                       {fieldsArray.map((field) => {
                         const value = sub.field_values[field.id]
-                        let displayValue = ''
-
-                        if (Array.isArray(value)) {
-                          // OMR field - wrap array
-                          displayValue = value.join(', ')
-                        } else if (typeof value === 'string') {
-                          // OCR field or parsed text
-                          try {
-                            const parsed = JSON.parse(value)
-                            displayValue = parsed.text || value
-                          } catch {
-                            displayValue = value
-                          }
-                        } else {
-                          displayValue = value ? String(value) : '-'
-                        }
+                        const displayValue = formatAnswerForDisplay(value)
 
                         return (
                           <td key={field.id} className="py-3 px-2 max-w-xs">
                             <div className="break-words line-clamp-2" title={displayValue}>
-                              {displayValue || '-'}
+                              {displayValue}
                             </div>
                           </td>
                         )

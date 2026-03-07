@@ -12,6 +12,20 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from ultralytics import YOLO
 import os
 
+# ==================== Configuration ====================
+# Line thickness scaling configuration
+# Line thickness will be calculated as: base_thickness + (image_diagonal * scale_factor)
+LINE_THICKNESS_BASE = 0.4        # Base line thickness (minimum)
+LINE_THICKNESS_SCALE = 0.0025  # Scale factor based on image diagonal
+                               # Higher value = thicker lines
+                               # Example: 0.001 = thin, 0.002 = medium, 0.003 = thick
+
+# Font size scaling configuration
+FONT_SIZE_BASE = 4            # Base font size (minimum)
+FONT_SIZE_SCALE = 0.012        # Scale factor for font size
+                               # Higher value = larger font
+# =======================================================
+
 # Class mapping from YOLO model
 CLASS_MAPPING = {
     0: 'a',
@@ -175,6 +189,16 @@ def draw_detections_on_image(image_base64, detections):
     image_data = base64.b64decode(image_base64.split(',')[1] if ',' in image_base64 else image_base64)
     image = Image.open(BytesIO(image_data)).convert('RGB')
 
+    # Calculate line thickness based on image size
+    img_width, img_height = image.size
+    img_diagonal = (img_width ** 2 + img_height ** 2) ** 0.5
+    line_thickness = int(LINE_THICKNESS_BASE + (img_diagonal * LINE_THICKNESS_SCALE))
+    line_thickness = max(1, line_thickness)  # Ensure at least 1 pixel
+
+    # Calculate font size based on image size
+    font_size = int(FONT_SIZE_BASE + (img_diagonal * FONT_SIZE_SCALE))
+    font_size = max(12, font_size)  # Ensure at least 12pt
+
     # Create drawing context
     draw = ImageDraw.Draw(image)
 
@@ -197,16 +221,16 @@ def draw_detections_on_image(image_base64, detections):
         # Get color
         color = colors.get(cls, '#ffffff')
 
-        # Draw rectangle (thicker line)
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        # Draw rectangle with scaled line thickness
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=line_thickness)
 
         # Draw label background
         label = f"{cls} ({conf:.2f})"
 
         # Use default font (PIL builtin)
         try:
-            # Try to use a better font if available
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
+            # Try to use a better font if available with scaled size
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
         except:
             font = ImageFont.load_default()
 
