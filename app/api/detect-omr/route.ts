@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
-import path from 'path'
+
+// Python API URL - use environment variable or default to localhost
+const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,9 +14,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const scriptPath = path.join(process.cwd(), 'lib', 'python', 'omr_detect.py')
+    // Call Python API
+    const response = await fetch(`${PYTHON_API_URL}/detect-omr`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ image }),
+    })
 
-    const result = await runPythonScript(scriptPath, image)
+    if (!response.ok) {
+      throw new Error(`Python API returned ${response.status}`)
+    }
+
+    const result = await response.json()
 
     return NextResponse.json(result)
   } catch (error) {
@@ -28,49 +40,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-function runPythonScript(scriptPath: string, imageData: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    // Use stdin instead of command line argument to avoid E2BIG error
-    const python = spawn('python3', [scriptPath])
-
-    let stdout = ''
-    let stderr = ''
-
-    python.stdout.on('data', (data) => {
-      stdout += data.toString()
-    })
-
-    python.stderr.on('data', (data) => {
-      stderr += data.toString()
-    })
-
-    python.on('close', (code) => {
-      if (stderr) {
-        console.log('Python stderr output:')
-        console.log(stderr)
-      }
-
-      if (code !== 0) {
-        reject(new Error(`Python script failed: ${stderr}`))
-        return
-      }
-
-      try {
-        const result = JSON.parse(stdout)
-        resolve(result)
-      } catch (error) {
-        reject(new Error(`Failed to parse Python output: ${stdout}`))
-      }
-    })
-
-    python.on('error', (error) => {
-      reject(new Error(`Failed to start Python process: ${error.message}`))
-    })
-
-    // Send image data through stdin
-    python.stdin.write(imageData)
-    python.stdin.end()
-  })
 }

@@ -13,15 +13,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Path to Python script (using OMRChecker contour approach)
+    // Path to Python script (using omr_croppage_standalone)
     const scriptPath = path.join(
       process.cwd(),
       "lib",
       "python",
-      "crop_page.py"
+      "crop_page_api.py"
     );
 
-    console.log("[DEBUG] Using OMRChecker contour-based detection");
+    console.log("[DEBUG] Using omr_croppage_standalone (robust morphology + adaptive epsilon)");
 
     // Call Python script
     const result = await runPythonScript(scriptPath, image);
@@ -47,7 +47,7 @@ function runPythonScript(
   imageData: string
 ): Promise<any> {
   return new Promise((resolve, reject) => {
-    const python = spawn("python", [scriptPath, imageData]);
+    const python = spawn("python3", [scriptPath, imageData]);
 
     let stdout = "";
     let stderr = "";
