@@ -52,13 +52,16 @@ export default function TestStep1Upload({ onImageLoad }: TestStep1UploadProps) {
       const result = await response.json()
 
       if (!result.success) {
-        throw new Error(result.error || 'Failed to crop image')
+        // Log error but return original image instead of throwing
+        console.log('Crop failed:', result.error || 'Failed to crop image')
+        return imageDataUrl
       }
 
       return result.croppedImage || imageDataUrl
     } catch (error) {
-      console.error('Auto-crop error:', error)
-      throw error
+      // Silent fail - return original image
+      console.log('Auto-crop error:', error)
+      return imageDataUrl
     }
   }
 
@@ -77,13 +80,7 @@ export default function TestStep1Upload({ onImageLoad }: TestStep1UploadProps) {
       let croppedDataUrl: string | undefined = undefined
 
       if (autoCropEnabled) {
-        try {
-          croppedDataUrl = await cropImage(originalDataUrl)
-        } catch (error) {
-          console.warn('Auto-crop failed, using original image:', error)
-          setError('ไม่สามารถครอบรูปอัตโนมัติได้ กำลังใช้รูปต้นฉบับ')
-          // Continue with original image - no need to throw
-        }
+        croppedDataUrl = await cropImage(originalDataUrl)
       }
 
       const img = new Image()

@@ -79,7 +79,7 @@ def detect_bubbles(image_base64):
 
     # Load model and predict
     model = load_model()
-    results = model.predict(source=image, conf=0.4, iou=0.1, verbose=False, augment=True)
+    results = model.predict(source=image, conf=0.1, iou=0.1, verbose=False, augment=False)
 
     # Extract detections
     detections = []
@@ -178,9 +178,15 @@ def sort_detections_to_answers(detections, img_width):
 
     return answers, sorted_detections
 
-def draw_detections_on_image(image_base64, detections):
+def draw_detections_on_image(image_base64, detections, selected_indices=None, show_all_labels=False):
     """
     Draw bounding boxes and labels on image
+
+    Args:
+        image_base64: Base64 encoded image
+        detections: List of detection dicts
+        selected_indices: List of indices of selected detections (0-based), will draw with thicker border
+        show_all_labels: If True, show all labels. If False, show only selected/hovered labels
 
     Returns:
         Base64 encoded image with detections drawn
@@ -221,8 +227,22 @@ def draw_detections_on_image(image_base64, detections):
         # Get color
         color = colors.get(cls, '#ffffff')
 
+        # Determine if this detection should be shown
+        is_selected = selected_indices is not None and i in selected_indices
+        should_show_label = show_all_labels or is_selected
+
+        # Skip drawing if label shouldn't be shown
+        if not should_show_label:
+            continue
+
+        # Adjust line thickness if this detection is selected
+        current_thickness = line_thickness
+        if is_selected:
+            current_thickness = line_thickness * 3  # 3x thicker for selected items
+            current_thickness = max(3, current_thickness)  # At least 3 pixels
+
         # Draw rectangle with scaled line thickness
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=line_thickness)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=current_thickness)
 
         # Draw label background
         label = f"{cls} ({conf:.2f})"
@@ -255,12 +275,33 @@ def draw_detections_on_image(image_base64, detections):
 def main():
     """
     CLI interface
-    Usage: python omr_detect.py (reads base64 image from stdin)
-    Output: JSON with {success, answers, detections}
+    Usage: python omr_detect.py (reads JSON from stdin)
+    Input: JSON with {image: base64_string, selectedDetectionIndices: number[], showAllLabels: boolean}
+    Output: JSON with {success, answers, detections, annotated_image}
     """
     try:
-        # Read from stdin instead of command line argument to avoid E2BIG error
-        image_base64 = sys.stdin.read().strip()
+        # Read from stdin
+        stdin_input = sys.stdin.read().strip()
+
+        if not stdin_input:
+            print(json.dumps({'success': False, 'error': 'No input provided'}))
+            sys.exit(1)
+
+        # Try to parse as JSON first (new format)
+        try:
+            input_data = json.loads(stdin_input)
+            image_base64 = input_data.get('image', '')
+            selected_detection_indices = input_data.get('selectedDetectionIndices', [])
+            show_all_labels = input_data.get('showAllLabels', False)
+
+            # Backward compatibility: support old format with single index
+            if 'selectedDetectionIndex' in input_data and input_data['selectedDetectionIndex'] is not None:
+                selected_detection_indices = [input_data['selectedDetectionIndex']]
+        except json.JSONDecodeError:
+            # Fallback to old format (plain base64 string)
+            image_base64 = stdin_input
+            selected_detection_indices = []
+            show_all_labels = False
 
         if not image_base64:
             print(json.dumps({'success': False, 'error': 'No image provided'}))
@@ -277,8 +318,10 @@ def main():
         # Sort into answer array
         answers, sorted_detections = sort_detections_to_answers(detections, img_width)
 
-        # Draw detections on image (use original detections for drawing all boxes)
-        annotated_image = draw_detections_on_image(image_base64, detections)
+        # Draw detections on image (use sorted detections for drawing)
+        # If selectedDetectionIndices is provided, highlight those detections
+        # If showAllLabels is True, show all labels; otherwise show only selected/hovered
+        annotated_image = draw_detections_on_image(image_base64, sorted_detections, selected_detection_indices, show_all_labels)
 
         result = {
             'success': True,

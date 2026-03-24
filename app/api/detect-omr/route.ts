@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-// Python API URL - use environment variable or default to localhost
-const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000'
+import { spawn } from 'child_process'
+import path from 'path'
 
 export async function POST(request: NextRequest) {
   try {
-    const { image } = await request.json()
+    const { image, selectedDetectionIndices, showAllLabels } = await request.json()
 
     if (!image) {
       return NextResponse.json(
@@ -14,20 +13,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Call Python API
-    const response = await fetch(`${PYTHON_API_URL}/detect-omr`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ image }),
-    })
+    // Path to Python script
+    const scriptPath = path.join(
+      process.cwd(),
+      'lib',
+      'python',
+      'omr_detect.py'
+    )
 
-    if (!response.ok) {
-      throw new Error(`Python API returned ${response.status}`)
-    }
+    console.log('[DEBUG] Detecting OMR bubbles with YOLO')
 
-    const result = await response.json()
+    // Call Python script (reads from stdin)
+    const result = await runPythonScript(scriptPath, image, selectedDetectionIndices, showAllLabels)
 
     return NextResponse.json(result)
   } catch (error) {
@@ -40,4 +37,65 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * Execute Python script and return result
+ * Note: omr_detect.py reads from stdin (not command line args)
+ */
+function runPythonScript(
+  scriptPath: string,
+  imageData: string,
+  selectedDetectionIndices?: number[],
+  showAllLabels?: boolean
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const python = spawn('python3', [scriptPath])
+
+    let stdout = ''
+    let stderr = ''
+
+    // Prepare input data with optional selectedDetectionIndices and showAllLabels
+    const inputData = JSON.stringify({
+      image: imageData,
+      selectedDetectionIndices: selectedDetectionIndices ?? [],
+      showAllLabels: showAllLabels ?? false
+    })
+
+    // Write input data to stdin
+    python.stdin.write(inputData)
+    python.stdin.end()
+
+    python.stdout.on('data', (data) => {
+      stdout += data.toString()
+    })
+
+    python.stderr.on('data', (data) => {
+      stderr += data.toString()
+    })
+
+    python.on('close', (code) => {
+      // Log stderr for debugging
+      if (stderr) {
+        console.log('Python stderr output:')
+        console.log(stderr)
+      }
+
+      if (code !== 0) {
+        reject(new Error(`Python script failed: ${stderr}`))
+        return
+      }
+
+      try {
+        const result = JSON.parse(stdout)
+        resolve(result)
+      } catch (error) {
+        reject(new Error(`Failed to parse Python output: ${stdout}`))
+      }
+    })
+
+    python.on('error', (error) => {
+      reject(new Error(`Failed to start Python process: ${error.message}`))
+    })
+  })
 }

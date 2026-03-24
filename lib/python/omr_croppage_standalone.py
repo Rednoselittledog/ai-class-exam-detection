@@ -1,6 +1,6 @@
 """
 OMR CropPage - Standalone Document Scanner
-จาก OMRChecker CropPage Processor
+จาก OMRChecker CropPage Processoro
 
 Robust Document Detection ด้วย Morphology + Adaptive Epsilon
 รับภาพเข้า → ตรวจจับเอกสาร → Perspective Transform → ส่งภาพออก

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { DrawnField, AnswerKeyValue } from '@/lib/types'
 import { fileToBase64, cropFieldFromImage, formatAnswerForDisplay } from '@/lib/utils/field-helpers'
+import OMRAnswerList from '@/app/components/OMRAnswerList'
+import OMRImageWithOverlay from '@/app/components/OMRImageWithOverlay'
 
 interface Step3ReviewProps {
   examName: string
@@ -33,11 +35,12 @@ export default function Step3ReviewNew({
   const [isDetecting, setIsDetecting] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
-  const [selectedField, setSelectedField] = useState<string | null>(null)
+  const [showLabelsToggle, setShowLabelsToggle] = useState<Record<string, boolean>>({})
+  const [selectedAnswerIndex, setSelectedAnswerIndex] = useState<Record<string, number | null>>({})
+  const [hoverAnswerIndex, setHoverAnswerIndex] = useState<Record<string, number | null>>({})
 
   // State: Answer key and detection results
   const [answerKey, setAnswerKey] = useState<Record<string, AnswerKeyValue>>(initialAnswerKey)
-  const [annotatedImages, setAnnotatedImages] = useState<Record<string, string>>({})
   const [detectionInfo, setDetectionInfo] = useState<Record<string, any>>({})
   const [croppedImages, setCroppedImages] = useState<Record<string, string>>({})
 
@@ -76,16 +79,6 @@ export default function Step3ReviewNew({
     }
   }
 
-  // API: Detect OMR answers
-  const detectOMR = async (croppedImage: string) => {
-    const response = await fetch('/api/detect-omr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: croppedImage })
-    })
-    return await response.json()
-  }
-
   // API: Detect OCR text
   const detectOCR = async (croppedImage: string) => {
     const response = await fetch('/api/detect-ocr', {
@@ -113,7 +106,6 @@ export default function Step3ReviewNew({
       }
 
       const newAnswerKey: Record<string, AnswerKeyValue> = { ...answerKey }
-      const newAnnotatedImages: Record<string, string> = {}
       const newDetectionInfo: Record<string, any> = {}
       const newCroppedImages: Record<string, string> = {}
 
@@ -125,9 +117,6 @@ export default function Step3ReviewNew({
           const result = await detectOMR(croppedFieldImage)
           if (result.success && result.answers) {
             newAnswerKey[field.id] = result.answers
-            if (result.annotated_image) {
-              newAnnotatedImages[field.id] = result.annotated_image
-            }
             newDetectionInfo[field.id] = {
               detections: result.detections || [],
               total_detected: result.total_detected || 0
@@ -142,7 +131,6 @@ export default function Step3ReviewNew({
       }
 
       setAnswerKey(newAnswerKey)
-      setAnnotatedImages(newAnnotatedImages)
       setDetectionInfo(newDetectionInfo)
       setCroppedImages(newCroppedImages)
     } catch (error) {
@@ -164,30 +152,24 @@ export default function Step3ReviewNew({
     }
   }
 
-  const handleEditSingleAnswer = (fieldId: string, index: number, newValue: string) => {
-    const currentAnswers = answerKey[fieldId]
-    if (Array.isArray(currentAnswers)) {
-      const updated = [...currentAnswers]
-      updated[index] = newValue.trim()
-      setAnswerKey({ ...answerKey, [fieldId]: updated })
-    }
+  const handleAnswersChange = (fieldId: string, newAnswers: string[]) => {
+    setAnswerKey({ ...answerKey, [fieldId]: newAnswers })
   }
 
-  const handleDeleteSingleAnswer = (fieldId: string, index: number) => {
-    const currentAnswers = answerKey[fieldId]
-    if (Array.isArray(currentAnswers)) {
-      const updated = currentAnswers.filter((_, i) => i !== index)
-      setAnswerKey({ ...answerKey, [fieldId]: updated })
-    }
+  const handleHoverIndexChange = (fieldId: string, hoverIndex: number | null) => {
+    // Only update if the hover index actually changed
+    if (hoverAnswerIndex[fieldId] === hoverIndex) return
+    setHoverAnswerIndex(prev => ({ ...prev, [fieldId]: hoverIndex }))
   }
 
-  const handleAddAnswer = (fieldId: string) => {
-    const currentAnswers = answerKey[fieldId]
-    if (Array.isArray(currentAnswers)) {
-      setAnswerKey({ ...answerKey, [fieldId]: [...currentAnswers, ''] })
-    } else {
-      setAnswerKey({ ...answerKey, [fieldId]: [''] })
-    }
+  // API: Detect OMR answers (only called once during initial detection)
+  const detectOMR = async (croppedImage: string) => {
+    const response = await fetch('/api/detect-omr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: croppedImage })
+    })
+    return await response.json()
   }
 
   // Save exam
@@ -248,7 +230,7 @@ export default function Step3ReviewNew({
       )}
 
       {/* Hint Banner */}
-      {!isDetecting && Object.keys(annotatedImages).length > 0 && (
+      {!isDetecting && Object.keys(detectionInfo).length > 0 && (
         <div className="mb-6 bg-green-600/20 border border-green-600/50 rounded-lg p-4">
           <p className="text-green-300 text-sm">
             ✅ <strong>ตรวจจับสำเร็จ!</strong> กด "ดูรูป" ที่แต่ละฟิลด์เพื่อดู Bounding Box และรายละเอียด
@@ -341,44 +323,53 @@ export default function Step3ReviewNew({
                             {field.type}
                           </span>
                         </div>
-                        {annotatedImages[field.id] && (
+                        {detectionInfo[field.id] && detectionInfo[field.id].detections && (
                           <label className="flex items-center gap-2 cursor-pointer">
                             <span className="text-sm text-gray-400">แสดง Labels</span>
                             <div className="relative">
                               <input
                                 type="checkbox"
-                                checked={selectedField === field.id}
-                                onChange={() => setSelectedField(selectedField === field.id ? null : field.id)}
+                                checked={showLabelsToggle[field.id] || false}
+                                onChange={(e) => {
+                                  setShowLabelsToggle({ ...showLabelsToggle, [field.id]: e.target.checked })
+                                }}
                                 className="sr-only peer"
                               />
-                              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                             </div>
                           </label>
                         )}
                       </div>
-                      {/* Show appropriate image */}
-                      {selectedField === field.id && annotatedImages[field.id] ? (
+                      {/* Show image with CSS overlay */}
+                      {detectionInfo[field.id] && detectionInfo[field.id].detections && croppedImages[field.id] ? (
                         <div>
-                          <img
-                            src={annotatedImages[field.id]}
-                            alt={`Annotated ${field.name}`}
-                            className="w-full rounded border border-gray-600"
+                          <OMRImageWithOverlay
+                            imageBase64={croppedImages[field.id]}
+                            detections={detectionInfo[field.id].detections}
+                            selectedIndices={selectedAnswerIndex[field.id] !== null && selectedAnswerIndex[field.id] !== undefined ? [selectedAnswerIndex[field.id]!] : []}
+                            hoverIndex={hoverAnswerIndex[field.id]}
+                            showAllLabels={showLabelsToggle[field.id] || false}
                           />
-                          {detectionInfo[field.id] && detectionInfo[field.id].detections && (
-                            <div className="mt-2 bg-gray-800 rounded-lg p-3">
-                              <p className="text-xs text-gray-400 mb-2">
-                                ตรวจพบ {detectionInfo[field.id].total_detected} จุด:
-                              </p>
-                              <div className="space-y-1 max-h-32 overflow-y-auto">
-                                {detectionInfo[field.id].detections.map((det: any, idx: number) => (
-                                  <div key={idx} className="text-xs flex justify-between items-center bg-gray-900 px-2 py-1 rounded">
-                                    <span className="text-white font-mono">{det.class}</span>
-                                    <span className="text-gray-400">({det.conf.toFixed(2)})</span>
-                                  </div>
-                                ))}
-                              </div>
+                          <div className="mt-2 bg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gray-400 mb-2">
+                              ตรวจพบ {detectionInfo[field.id].total_detected} จุด • Hover/Click เพื่อดูตำแหน่ง
+                            </p>
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {detectionInfo[field.id].detections.map((det: any, idx: number) => (
+                                <div
+                                  key={idx}
+                                  className={`text-xs flex justify-between items-center px-2 py-1 rounded transition-colors ${
+                                    selectedAnswerIndex[field.id] === idx
+                                      ? 'bg-blue-600/30 border border-blue-500'
+                                      : 'bg-gray-900'
+                                  }`}
+                                >
+                                  <span className="text-white font-mono">{det.class}</span>
+                                  <span className="text-gray-400">({det.conf.toFixed(2)})</span>
+                                </div>
+                              ))}
                             </div>
-                          )}
+                          </div>
                         </div>
                       ) : croppedImages[field.id] ? (
                         <img
@@ -387,7 +378,7 @@ export default function Step3ReviewNew({
                           className="w-full rounded border border-gray-600"
                         />
                       ) : (
-                        <div className="w-full aspect-[4/3] bg-gray-800 rounded border border-gray-600 flex items-center justify-center text-gray-500">
+                        <div className="w-full aspect-4/3 bg-gray-800 rounded border border-gray-600 flex items-center justify-center text-gray-500">
                           ไม่มีรูปภาพ
                         </div>
                       )}
@@ -395,58 +386,14 @@ export default function Step3ReviewNew({
 
                     {/* Right: Answers Table */}
                     <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <h5 className="text-white font-semibold">เฉลยคำตอบ</h5>
-                        <button
-                          onClick={() => handleAddAnswer(field.id)}
-                          className="px-3 py-1.5 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded text-sm font-medium transition-colors"
-                        >
-                          + เพิ่มข้อ
-                        </button>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-800">
-                            <tr>
-                              <th className="px-3 py-2 text-left text-gray-300 font-semibold w-16">ข้อ</th>
-                              <th className="px-3 py-2 text-left text-gray-300 font-semibold">คำตอบ</th>
-                              <th className="px-3 py-2 text-center text-gray-300 font-semibold w-20">ลบ</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-700">
-                            {answers.length === 0 ? (
-                              <tr>
-                                <td colSpan={3} className="px-3 py-4 text-center text-gray-500">
-                                  รอการตรวจจับ...
-                                </td>
-                              </tr>
-                            ) : (
-                              answers.map((ans, idx) => (
-                                <tr key={idx} className="hover:bg-gray-800/50 transition-colors">
-                                  <td className="px-3 py-2 text-gray-400">#{idx + 1}</td>
-                                  <td className="px-3 py-2">
-                                    <input
-                                      type="text"
-                                      value={ans}
-                                      onChange={(e) => handleEditSingleAnswer(field.id, idx, e.target.value)}
-                                      placeholder="a, b, c, d"
-                                      className="w-full px-3 py-1.5 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2 text-center">
-                                    <button
-                                      onClick={() => handleDeleteSingleAnswer(field.id, idx)}
-                                      className="px-2 py-1 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded text-xs font-medium transition-colors"
-                                    >
-                                      ✕
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
+                      <OMRAnswerList
+                        answers={answers}
+                        onAnswersChange={(newAnswers) => handleAnswersChange(field.id, newAnswers)}
+                        selectedIndex={selectedAnswerIndex[field.id] ?? null}
+                        onSelectedIndexChange={(index) => setSelectedAnswerIndex({ ...selectedAnswerIndex, [field.id]: index })}
+                        detections={detectionInfo[field.id]?.detections || []}
+                        onHoverIndexChange={(index) => handleHoverIndexChange(field.id, index)}
+                      />
                     </div>
                   </div>
                 </div>
