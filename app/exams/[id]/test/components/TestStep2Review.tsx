@@ -43,7 +43,7 @@ export default function TestStep2Review({
     const loadAndDrawImage = () => {
       const img = new Image()
       img.onload = () => {
-        // Draw resized image
+        // Draw resized image (stretch to fit)
         ctx.drawImage(img, 0, 0, targetWidth, targetHeight)
 
         // Draw field overlays

@@ -14,6 +14,7 @@ interface OMRImageWithOverlayProps {
   selectedIndices?: number[]
   hoverIndex?: number | null
   showAllLabels: boolean
+  rotation?: 0 | 90 | 180 | 270
 }
 
 const OMRImageWithOverlay = ({
@@ -21,7 +22,8 @@ const OMRImageWithOverlay = ({
   detections,
   selectedIndices = [],
   hoverIndex = null,
-  showAllLabels
+  showAllLabels,
+  rotation = 0
 }: OMRImageWithOverlayProps) => {
   const imageRef = useRef<HTMLImageElement>(null)
   const [scale, setScale] = useState(1)
@@ -85,14 +87,25 @@ const OMRImageWithOverlay = ({
   }
 
   return (
-    <div className="relative inline-block">
-      {/* Original image without any labels */}
-      <img
-        ref={imageRef}
-        src={imageBase64}
-        alt="OMR Detection"
-        className="w-full h-auto"
-      />
+    <div className="flex items-center justify-center">
+      <div
+        className="relative"
+        style={{
+          transform: `rotate(${rotation}deg)`,
+          transformOrigin: 'center center'
+        }}
+      >
+        {/* Original image without any labels */}
+        <img
+          ref={imageRef}
+          src={imageBase64}
+          alt="OMR Detection"
+          className="h-auto max-w-full"
+          style={{
+            maxHeight: '500px',
+            objectFit: 'contain'
+          }}
+        />
 
       {/* Overlay labels */}
       {detections.map((det, i) => {
@@ -137,6 +150,7 @@ const OMRImageWithOverlay = ({
           </div>
         )
       })}
+      </div>
     </div>
   )
 }

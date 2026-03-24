@@ -14,6 +14,7 @@ export default function Step1Upload({ onImageLoad }: Step1UploadProps) {
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [autoCropEnabled, setAutoCropEnabled] = useState(true)
+  const [hasImage, setHasImage] = useState(false)
 
   const cropImage = useCallback(async (imageDataUrl: string): Promise<string> => {
     try {
@@ -85,17 +86,26 @@ export default function Step1Upload({ onImageLoad }: Step1UploadProps) {
 
       const img = new Image()
       img.onload = () => {
+        console.log('Image loaded successfully:', { width: img.width, height: img.height })
         const canvas = canvasRef.current
-        if (!canvas) return
+        if (!canvas) {
+          console.error('Canvas ref is null!')
+          return
+        }
 
         canvas.width = img.width
         canvas.height = img.height
+        console.log('Canvas size set:', { width: canvas.width, height: canvas.height })
+
         const ctx = canvas.getContext('2d')
         if (ctx) {
           ctx.drawImage(img, 0, 0)
+          console.log('Image drawn to canvas')
         }
 
+        setHasImage(true)
         setIsProcessing(false)
+        console.log('Calling onImageLoad...')
         onImageLoad(img, file, croppedDataUrl)
       }
       img.onerror = () => {
@@ -148,7 +158,7 @@ export default function Step1Upload({ onImageLoad }: Step1UploadProps) {
 
       {error && (
         <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex items-start gap-3">
-          <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div className="flex-1">
@@ -184,11 +194,10 @@ export default function Step1Upload({ onImageLoad }: Step1UploadProps) {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6" style={{ display: hasImage ? 'block' : 'none' }}>
         <canvas
           ref={canvasRef}
           className="border border-gray-700 rounded-lg max-w-full h-auto bg-gray-900"
-          style={{ display: canvasRef.current?.width ? 'block' : 'none' }}
         />
       </div>
     </div>

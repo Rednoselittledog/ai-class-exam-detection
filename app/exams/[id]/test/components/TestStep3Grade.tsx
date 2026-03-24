@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { DrawnField, AnswerKeyValue } from '@/lib/types'
-import { cropFieldFromImage, compareAnswers } from '@/lib/utils/field-helpers'
+import { cropFieldFromImage, compareAnswers, formatAnswerForDisplay } from '@/lib/utils/field-helpers'
 import OMRAnswerList from '@/app/components/OMRAnswerList'
 import OMRImageWithOverlay from '@/app/components/OMRImageWithOverlay'
 
@@ -41,6 +41,8 @@ export default function TestStep3Grade({
   const [detectedAnswers, setDetectedAnswers] = useState<Record<string, AnswerKeyValue>>(initialAnswers)
   const [detectionInfo, setDetectionInfo] = useState<Record<string, any>>({})
   const [croppedImages, setCroppedImages] = useState<Record<string, string>>({})
+  const [answerToDetectionMap, setAnswerToDetectionMap] = useState<Record<string, number[]>>({})
+  const answerToDetectionMapRef = useRef<Record<string, number[]>>({})
 
   // Auto-detect on mount (only if not in edit mode or if initialAnswers is empty)
   useEffect(() => {
@@ -96,9 +98,19 @@ export default function TestStep3Grade({
         }
       }
 
+      // Create initial mapping: answer index -> detection index
+      const newMapping: Record<string, number[]> = {}
+      for (const field of fields) {
+        if (field.type === 'ฝน' && newDetectedAnswers[field.id]) {
+          const answers = Array.isArray(newDetectedAnswers[field.id]) ? newDetectedAnswers[field.id] as string[] : []
+          newMapping[field.id] = answers.map((_, idx) => idx)
+        }
+      }
+
       setDetectedAnswers(newDetectedAnswers)
       setDetectionInfo(newDetectionInfo)
       setCroppedImages(newCroppedImages)
+      setAnswerToDetectionMap(newMapping)
     } catch (error) {
       setErrorMessage(`เกิดข้อผิดพลาดในการตรวจจับคำตอบ: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
@@ -123,11 +135,45 @@ export default function TestStep3Grade({
     setDetectedAnswers({ ...detectedAnswers, [fieldId]: newAnswers })
   }
 
-  const handleHoverIndexChange = (fieldId: string, hoverIndex: number | null) => {
-    // Only update if the hover index actually changed
-    if (hoverAnswerIndex[fieldId] === hoverIndex) return
-    setHoverAnswerIndex(prev => ({ ...prev, [fieldId]: hoverIndex }))
+  const handleAnswerDelete = (fieldId: string, deletedIndex: number) => {
+    const oldMapping = answerToDetectionMap[fieldId] || []
+    // Remove the mapping at deletedIndex
+    const newMapping = oldMapping.filter((_, idx) => idx !== deletedIndex)
+    setAnswerToDetectionMap({ ...answerToDetectionMap, [fieldId]: newMapping })
   }
+
+  const handleAnswerAdd = (fieldId: string, insertedIndex: number) => {
+    const oldMapping = answerToDetectionMap[fieldId] || []
+    // Insert -1 at insertedIndex (no detection for new answer)
+    const newMapping = [...oldMapping]
+    newMapping.splice(insertedIndex, 0, -1)
+    setAnswerToDetectionMap({ ...answerToDetectionMap, [fieldId]: newMapping })
+  }
+
+  // Update ref whenever answerToDetectionMap changes
+  useEffect(() => {
+    answerToDetectionMapRef.current = answerToDetectionMap
+  }, [answerToDetectionMap])
+
+  const handleHoverIndexChange = useCallback((fieldId: string, answerIndex: number | null) => {
+    // Map answer index to detection index using ref to avoid dependency
+    const mapping = answerToDetectionMapRef.current
+    const detectionIndex = answerIndex !== null && mapping[fieldId]
+      ? mapping[fieldId][answerIndex]
+      : null
+
+    // Only update if the detection index is valid and changed
+    if (detectionIndex === undefined || detectionIndex === -1) {
+      setHoverAnswerIndex(prev => ({ ...prev, [fieldId]: null }))
+      return
+    }
+
+    setHoverAnswerIndex(prev => {
+      // Skip if same detection index
+      if (prev[fieldId] === detectionIndex) return prev
+      return { ...prev, [fieldId]: detectionIndex }
+    })
+  }, [])
 
   // API: Detect OMR answers (only called once during initial detection)
   const detectOMR = async (croppedImage: string) => {
@@ -262,7 +308,7 @@ export default function TestStep3Grade({
           <div className="space-y-4">
             {dataFields.map((field) => {
               const detectedData = detectedAnswers[field.id]
-              const displayData = Array.isArray(detectedData) ? detectedData.join(', ') : detectedData || ''
+              const displayData = formatAnswerForDisplay(detectedData)
 
               return (
                 <div key={field.id} className="bg-gray-900 rounded-lg p-4 border border-gray-700">
@@ -276,11 +322,17 @@ export default function TestStep3Grade({
                         </span>
                       </div>
                       {croppedImages[field.id] && (
-                        <img
-                          src={croppedImages[field.id]}
-                          alt={`Cropped ${field.name}`}
-                          className="w-full rounded border border-gray-600"
-                        />
+                        <div className="flex items-center justify-center">
+                          <img
+                            src={croppedImages[field.id]}
+                            alt={`Cropped ${field.name}`}
+                            className="rounded border border-gray-600 max-w-full"
+                            style={{
+                              maxHeight: '300px',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </div>
                       )}
                     </div>
                     {/* Right: Detected Data */}
@@ -350,37 +402,32 @@ export default function TestStep3Grade({
                           <OMRImageWithOverlay
                             imageBase64={croppedImages[field.id]}
                             detections={detectionInfo[field.id].detections}
-                            selectedIndices={selectedAnswerIndex[field.id] !== null && selectedAnswerIndex[field.id] !== undefined ? [selectedAnswerIndex[field.id]!] : []}
+                            selectedIndices={
+                              selectedAnswerIndex[field.id] !== null &&
+                              selectedAnswerIndex[field.id] !== undefined &&
+                              answerToDetectionMap[field.id] &&
+                              answerToDetectionMap[field.id][selectedAnswerIndex[field.id]!] !== undefined &&
+                              answerToDetectionMap[field.id][selectedAnswerIndex[field.id]!] !== -1
+                                ? [answerToDetectionMap[field.id][selectedAnswerIndex[field.id]!]]
+                                : []
+                            }
                             hoverIndex={hoverAnswerIndex[field.id]}
                             showAllLabels={showLabelsToggle[field.id] || false}
+                            rotation={field.rotate}
                           />
-                          <div className="mt-2 bg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gray-400 mb-2">
-                              ตรวจพบ {detectionInfo[field.id].total_detected} จุด • Hover/Click เพื่อดูตำแหน่ง
-                            </p>
-                            <div className="space-y-1 max-h-32 overflow-y-auto">
-                              {detectionInfo[field.id].detections.map((det: any, idx: number) => (
-                                <div
-                                  key={idx}
-                                  className={`text-xs flex justify-between items-center px-2 py-1 rounded transition-colors ${
-                                    selectedAnswerIndex[field.id] === idx
-                                      ? 'bg-blue-600/30 border border-blue-500'
-                                      : 'bg-gray-900'
-                                  }`}
-                                >
-                                  <span className="text-white font-mono">{det.class}</span>
-                                  <span className="text-gray-400">({det.conf.toFixed(2)})</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
                         </div>
                       ) : croppedImages[field.id] ? (
-                        <img
-                          src={croppedImages[field.id]}
-                          alt={`Cropped ${field.name}`}
-                          className="w-full rounded border border-gray-600"
-                        />
+                        <div className="flex items-center justify-center">
+                          <img
+                            src={croppedImages[field.id]}
+                            alt={`Cropped ${field.name}`}
+                            className="rounded border border-gray-600 max-w-full"
+                            style={{
+                              maxHeight: '300px',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </div>
                       ) : (
                         <div className="w-full aspect-4/3 bg-gray-800 rounded border border-gray-600 flex items-center justify-center text-gray-500">
                           ไม่มีรูปภาพ
@@ -402,6 +449,8 @@ export default function TestStep3Grade({
                           onSelectedIndexChange={(index) => setSelectedAnswerIndex({ ...selectedAnswerIndex, [field.id]: index })}
                           detections={detectionInfo[field.id]?.detections || []}
                           onHoverIndexChange={(index) => handleHoverIndexChange(field.id, index)}
+                          onDelete={(deletedIndex) => handleAnswerDelete(field.id, deletedIndex)}
+                          onAdd={(insertedIndex) => handleAnswerAdd(field.id, insertedIndex)}
                         />
                       </div>
 

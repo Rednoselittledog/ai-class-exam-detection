@@ -19,6 +19,7 @@ export default function Step2Annotate({ image, fields, onFieldsChange }: Step2An
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
+  const [fieldCounter, setFieldCounter] = useState(fields.length + 1)
 
   // Undo/Redo history
   const [history, setHistory] = useState<DrawnField[][]>([fields])
@@ -322,7 +323,7 @@ export default function Step2Annotate({ image, fields, onFieldsChange }: Step2An
     } else if (currentRect) {
       // Create new field
       const newField: DrawnField = {
-        id: `field${fields.length + 1}`,
+        id: `field${fieldCounter}`,
         ...fieldData,
         location: [
           currentRect.x,
@@ -331,6 +332,7 @@ export default function Step2Annotate({ image, fields, onFieldsChange }: Step2An
           currentRect.y + currentRect.h
         ]
       }
+      setFieldCounter(fieldCounter + 1)
       updateFieldsWithHistory([...fields, newField])
       setCurrentRect(null)
     }
@@ -480,7 +482,7 @@ export default function Step2Annotate({ image, fields, onFieldsChange }: Step2An
             )}
             {fields.map((field, index) => (
               <div
-                key={field.id}
+                key={`${field.id}-${index}`}
                 onClick={() => {
                   setSelectedFieldId(field.id)
                   const updatedFields = fields.map(f => ({

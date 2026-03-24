@@ -27,17 +27,50 @@ export const cropFieldFromImage = async (
 
     img.onload = () => {
       try {
-        const canvas = document.createElement('canvas')
         const [x1, y1, x2, y2] = field.location
         const width = x2 - x1
         const height = y2 - y1
 
-        canvas.width = width
-        canvas.height = height
+        console.log('=== cropFieldFromImage ===')
+        console.log('Field:', field.name, 'Type:', field.type)
+        console.log('Rotation:', field.rotate)
+        console.log('Location:', { x1, y1, x2, y2 })
+        console.log('Crop size:', { width, height })
+        console.log('Image size:', { imgWidth: img.width, imgHeight: img.height })
+
+        // Create canvas for cropped image
+        const canvas = document.createElement('canvas')
+
+        // Adjust canvas size based on rotation
+        if (field.rotate === 90 || field.rotate === 270) {
+          canvas.width = height
+          canvas.height = width
+        } else {
+          canvas.width = width
+          canvas.height = height
+        }
+
+        console.log('Canvas size:', { canvasWidth: canvas.width, canvasHeight: canvas.height })
+
         const ctx = canvas.getContext('2d')!
 
-        // Draw cropped region
-        ctx.drawImage(img, x1, y1, width, height, 0, 0, width, height)
+        // Apply rotation transformation
+        if (field.rotate !== 0) {
+          console.log('Applying rotation:', field.rotate, 'degrees')
+          // Move to center of canvas
+          ctx.translate(canvas.width / 2, canvas.height / 2)
+          // Rotate
+          ctx.rotate((field.rotate * Math.PI) / 180)
+          // Draw the cropped region centered
+          // For any rotation, we draw the original dimensions centered
+          ctx.drawImage(img, x1, y1, width, height, -width / 2, -height / 2, width, height)
+          console.log('Drew with original dimensions centered')
+        } else {
+          console.log('No rotation needed')
+          // No rotation - draw normally
+          ctx.drawImage(img, x1, y1, width, height, 0, 0, width, height)
+        }
+        console.log('===========================')
 
         resolve(canvas.toDataURL('image/png'))
       } catch (error) {

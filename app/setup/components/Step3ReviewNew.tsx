@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { DrawnField, AnswerKeyValue } from '@/lib/types'
 import { fileToBase64, cropFieldFromImage, formatAnswerForDisplay } from '@/lib/utils/field-helpers'
@@ -41,43 +41,20 @@ export default function Step3ReviewNew({
 
   // State: Answer key and detection results
   const [answerKey, setAnswerKey] = useState<Record<string, AnswerKeyValue>>(initialAnswerKey)
-  const [detectionInfo, setDetectionInfo] = useState<Record<string, any>>({})
+  const [detectionInfo, setDetectionInfo] = useState<Record<string, { detections: Array<{ class: string; bbox: number[]; conf: number }>; total_detected: number }>>({})
   const [croppedImages, setCroppedImages] = useState<Record<string, string>>({})
+  const [answerToDetectionMap, setAnswerToDetectionMap] = useState<Record<string, number[]>>({})
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const answerToDetectionMapRef = useRef<Record<string, number[]>>({})
 
-  // Auto-detect on mount (only if not in edit mode or if initialAnswerKey is empty)
+  // Auto-detect on mount - always detect to get detection info for labels
   useEffect(() => {
-    if (!isEditMode || Object.keys(initialAnswerKey).length === 0) {
-      const fieldsWithAnswer = fields.filter(f => f.has_answer === 1)
-      if (fieldsWithAnswer.length > 0 && (imageFile || croppedImageDataUrl)) {
-        handleAutoDetect()
-      }
-    } else {
-      // In edit mode with existing data - just crop images without detecting
-      handleCropAllImages()
+    const fieldsWithAnswer = fields.filter(f => f.has_answer === 1)
+    if (fieldsWithAnswer.length > 0 && (imageFile || croppedImageDataUrl)) {
+      handleAutoDetect()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Empty dependency array - only run once on mount
-
-  // Crop all field images without detection (for edit mode)
-  const handleCropAllImages = async () => {
-    if (!imageFile && !croppedImageDataUrl) return
-
-    try {
-      let imageBase64 = croppedImageDataUrl
-      if (!imageBase64 && imageFile) {
-        imageBase64 = await fileToBase64(imageFile)
-      }
-
-      const newCroppedImages: Record<string, string> = {}
-      for (const field of fields) {
-        const croppedFieldImage = await cropFieldFromImage(imageBase64!, field, canvasSize)
-        newCroppedImages[field.id] = croppedFieldImage
-      }
-
-      setCroppedImages(newCroppedImages)
-    } catch (error) {
-      console.error('Error cropping images:', error)
-    }
-  }
 
   // API: Detect OCR text
   const detectOCR = async (croppedImage: string) => {
@@ -106,7 +83,7 @@ export default function Step3ReviewNew({
       }
 
       const newAnswerKey: Record<string, AnswerKeyValue> = { ...answerKey }
-      const newDetectionInfo: Record<string, any> = {}
+      const newDetectionInfo: Record<string, { detections: Array<{ class: string; bbox: number[]; conf: number }>; total_detected: number }> = {}
       const newCroppedImages: Record<string, string> = {}
 
       for (const field of fields) {
@@ -130,9 +107,25 @@ export default function Step3ReviewNew({
         }
       }
 
-      setAnswerKey(newAnswerKey)
+      // Use existing answerKey only on initial load in edit mode, otherwise use detected answers
+      const finalAnswerKey = isEditMode && Object.keys(initialAnswerKey).length > 0 && isInitialLoad
+        ? initialAnswerKey  // Keep user's existing answers on initial load
+        : newAnswerKey  // Use newly detected answers (for creation mode or re-scan)
+
+      // Create initial mapping: answer index -> detection index
+      const newMapping: Record<string, number[]> = {}
+      for (const field of fields) {
+        if (field.type === 'ฝน' && finalAnswerKey[field.id]) {
+          const answers = Array.isArray(finalAnswerKey[field.id]) ? finalAnswerKey[field.id] as string[] : []
+          newMapping[field.id] = answers.map((_, idx) => idx)
+        }
+      }
+
+      setAnswerKey(finalAnswerKey)
       setDetectionInfo(newDetectionInfo)
       setCroppedImages(newCroppedImages)
+      setAnswerToDetectionMap(newMapping)
+      setIsInitialLoad(false)
     } catch (error) {
       setErrorMessage(`เกิดข้อผิดพลาดในการตรวจจับเฉลย: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
@@ -156,11 +149,45 @@ export default function Step3ReviewNew({
     setAnswerKey({ ...answerKey, [fieldId]: newAnswers })
   }
 
-  const handleHoverIndexChange = (fieldId: string, hoverIndex: number | null) => {
-    // Only update if the hover index actually changed
-    if (hoverAnswerIndex[fieldId] === hoverIndex) return
-    setHoverAnswerIndex(prev => ({ ...prev, [fieldId]: hoverIndex }))
+  const handleAnswerDelete = (fieldId: string, deletedIndex: number) => {
+    const oldMapping = answerToDetectionMap[fieldId] || []
+    // Remove the mapping at deletedIndex
+    const newMapping = oldMapping.filter((_, idx) => idx !== deletedIndex)
+    setAnswerToDetectionMap({ ...answerToDetectionMap, [fieldId]: newMapping })
   }
+
+  const handleAnswerAdd = (fieldId: string, insertedIndex: number) => {
+    const oldMapping = answerToDetectionMap[fieldId] || []
+    // Insert -1 at insertedIndex (no detection for new answer)
+    const newMapping = [...oldMapping]
+    newMapping.splice(insertedIndex, 0, -1)
+    setAnswerToDetectionMap({ ...answerToDetectionMap, [fieldId]: newMapping })
+  }
+
+  // Update ref whenever answerToDetectionMap changes
+  useEffect(() => {
+    answerToDetectionMapRef.current = answerToDetectionMap
+  }, [answerToDetectionMap])
+
+  const handleHoverIndexChange = useCallback((fieldId: string, answerIndex: number | null) => {
+    // Map answer index to detection index using ref to avoid dependency
+    const mapping = answerToDetectionMapRef.current
+    const detectionIndex = answerIndex !== null && mapping[fieldId]
+      ? mapping[fieldId][answerIndex]
+      : null
+
+    // Only update if the detection index is valid and changed
+    if (detectionIndex === undefined || detectionIndex === -1) {
+      setHoverAnswerIndex(prev => ({ ...prev, [fieldId]: null }))
+      return
+    }
+
+    setHoverAnswerIndex(prev => {
+      // Skip if same detection index
+      if (prev[fieldId] === detectionIndex) return prev
+      return { ...prev, [fieldId]: detectionIndex }
+    })
+  }, [])
 
   // API: Detect OMR answers (only called once during initial detection)
   const detectOMR = async (croppedImage: string) => {
@@ -224,7 +251,7 @@ export default function Step3ReviewNew({
       {isEditMode && Object.keys(initialAnswerKey).length > 0 && !isDetecting && (
         <div className="mb-6 bg-blue-600/20 border border-blue-600/50 rounded-lg p-4">
           <p className="text-blue-300 text-sm">
-            ℹ️ <strong>โหมดแก้ไข:</strong> ข้อมูลที่มีอยู่แล้วถูกโหลดมา คุณสามารถแก้ไขหรือกด "แสกนใหม่" เพื่อตรวจจับอีกครั้ง
+            ℹ️ <strong>โหมดแก้ไข:</strong> ข้อมูลที่มีอยู่แล้วถูกโหลดมา คุณสามารถแก้ไขหรือกด &quot;แสกนใหม่&quot; เพื่อตรวจจับอีกครั้ง
           </p>
         </div>
       )}
@@ -233,7 +260,7 @@ export default function Step3ReviewNew({
       {!isDetecting && Object.keys(detectionInfo).length > 0 && (
         <div className="mb-6 bg-green-600/20 border border-green-600/50 rounded-lg p-4">
           <p className="text-green-300 text-sm">
-            ✅ <strong>ตรวจจับสำเร็จ!</strong> กด "ดูรูป" ที่แต่ละฟิลด์เพื่อดู Bounding Box และรายละเอียด
+            ✅ <strong>ตรวจจับสำเร็จ!</strong> กด &quot;ดูรูป&quot; ที่แต่ละฟิลด์เพื่อดู Bounding Box และรายละเอียด
           </p>
         </div>
       )}
@@ -274,11 +301,18 @@ export default function Step3ReviewNew({
                         </span>
                       </div>
                       {croppedImages[field.id] && (
-                        <img
-                          src={croppedImages[field.id]}
-                          alt={`Cropped ${field.name}`}
-                          className="w-full rounded border border-gray-600"
-                        />
+                        <div className="flex items-center justify-center">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={croppedImages[field.id]}
+                            alt={`Cropped ${field.name}`}
+                            className="rounded border border-gray-600 max-w-full"
+                            style={{
+                              maxHeight: '300px',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </div>
                       )}
                     </div>
                     {/* Right: Detected Data */}
@@ -346,37 +380,33 @@ export default function Step3ReviewNew({
                           <OMRImageWithOverlay
                             imageBase64={croppedImages[field.id]}
                             detections={detectionInfo[field.id].detections}
-                            selectedIndices={selectedAnswerIndex[field.id] !== null && selectedAnswerIndex[field.id] !== undefined ? [selectedAnswerIndex[field.id]!] : []}
+                            selectedIndices={
+                              selectedAnswerIndex[field.id] !== null &&
+                              selectedAnswerIndex[field.id] !== undefined &&
+                              answerToDetectionMap[field.id] &&
+                              answerToDetectionMap[field.id][selectedAnswerIndex[field.id]!] !== undefined &&
+                              answerToDetectionMap[field.id][selectedAnswerIndex[field.id]!] !== -1
+                                ? [answerToDetectionMap[field.id][selectedAnswerIndex[field.id]!]]
+                                : []
+                            }
                             hoverIndex={hoverAnswerIndex[field.id]}
                             showAllLabels={showLabelsToggle[field.id] || false}
+                            rotation={field.rotate}
                           />
-                          <div className="mt-2 bg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gray-400 mb-2">
-                              ตรวจพบ {detectionInfo[field.id].total_detected} จุด • Hover/Click เพื่อดูตำแหน่ง
-                            </p>
-                            <div className="space-y-1 max-h-32 overflow-y-auto">
-                              {detectionInfo[field.id].detections.map((det: any, idx: number) => (
-                                <div
-                                  key={idx}
-                                  className={`text-xs flex justify-between items-center px-2 py-1 rounded transition-colors ${
-                                    selectedAnswerIndex[field.id] === idx
-                                      ? 'bg-blue-600/30 border border-blue-500'
-                                      : 'bg-gray-900'
-                                  }`}
-                                >
-                                  <span className="text-white font-mono">{det.class}</span>
-                                  <span className="text-gray-400">({det.conf.toFixed(2)})</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
                         </div>
                       ) : croppedImages[field.id] ? (
-                        <img
-                          src={croppedImages[field.id]}
-                          alt={`Cropped ${field.name}`}
-                          className="w-full rounded border border-gray-600"
-                        />
+                        <div className="flex items-center justify-center">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={croppedImages[field.id]}
+                            alt={`Cropped ${field.name}`}
+                            className="rounded border border-gray-600 max-w-full"
+                            style={{
+                              maxHeight: '300px',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </div>
                       ) : (
                         <div className="w-full aspect-4/3 bg-gray-800 rounded border border-gray-600 flex items-center justify-center text-gray-500">
                           ไม่มีรูปภาพ
@@ -393,6 +423,8 @@ export default function Step3ReviewNew({
                         onSelectedIndexChange={(index) => setSelectedAnswerIndex({ ...selectedAnswerIndex, [field.id]: index })}
                         detections={detectionInfo[field.id]?.detections || []}
                         onHoverIndexChange={(index) => handleHoverIndexChange(field.id, index)}
+                        onDelete={(deletedIndex) => handleAnswerDelete(field.id, deletedIndex)}
+                        onAdd={(insertedIndex) => handleAnswerAdd(field.id, insertedIndex)}
                       />
                     </div>
                   </div>
@@ -411,6 +443,7 @@ export default function Step3ReviewNew({
           <div className="lg:col-span-2">
             <h4 className="text-sm font-semibold text-gray-300 mb-3">รูปภาพข้อสอบเต็ม</h4>
             {(croppedImageDataUrl || imageFile) && (
+              /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={croppedImageDataUrl || (imageFile ? URL.createObjectURL(imageFile) : '')}
                 alt="Exam preview"

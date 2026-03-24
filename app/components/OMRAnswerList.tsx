@@ -15,6 +15,8 @@ interface OMRAnswerListProps {
   selectedIndex?: number | null
   detections?: Detection[]
   onHoverIndexChange?: (index: number | null) => void
+  onDelete?: (deletedIndex: number) => void
+  onAdd?: (insertedIndex: number) => void
   readOnly?: boolean
 }
 
@@ -25,6 +27,8 @@ export default function OMRAnswerList({
   selectedIndex: controlledSelectedIndex,
   detections = [],
   onHoverIndexChange,
+  onDelete,
+  onAdd,
   readOnly = false
 }: OMRAnswerListProps) {
   const [internalSelectedIndex, setInternalSelectedIndex] = useState<number | null>(null)
@@ -42,7 +46,8 @@ export default function OMRAnswerList({
     if (onHoverIndexChange) {
       onHoverIndexChange(hoverIndex)
     }
-  }, [hoverIndex, onHoverIndexChange])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverIndex])
 
   // Handle click outside to deselect
   useEffect(() => {
@@ -110,6 +115,11 @@ export default function OMRAnswerList({
     const updated = answers.filter((_, i) => i !== index)
     onAnswersChange(updated)
 
+    // Notify parent about deletion
+    if (onDelete) {
+      onDelete(index)
+    }
+
     // Adjust selection after delete
     if (selectedIndex === index) {
       setSelectedIndex(null)
@@ -127,6 +137,12 @@ export default function OMRAnswerList({
     updated.splice(insertIndex, 0, '')
 
     onAnswersChange(updated)
+
+    // Notify parent about addition
+    if (onAdd) {
+      onAdd(insertIndex)
+    }
+
     setSelectedIndex(insertIndex)
   }
 
@@ -203,27 +219,8 @@ export default function OMRAnswerList({
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="max-h-96 overflow-y-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-800">
-            <tr>
-              <th className="px-3 py-2 text-left text-gray-300 font-semibold w-16">ข้อ</th>
-              <th className="px-3 py-2 text-left text-gray-300 font-semibold">คำตอบ</th>
-              {detections.length > 0 && (
-                <th className="px-3 py-2 text-center text-gray-300 font-semibold w-20">Conf</th>
-              )}
-              {!readOnly && (
-                <>
-                  <th className="px-3 py-2 text-center text-gray-300 font-semibold w-16">
-                    <svg className="w-4 h-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </th>
-                  <th className="px-3 py-2 text-center text-gray-300 font-semibold w-16">ลบ</th>
-                </>
-              )}
-            </tr>
-          </thead>
           <tbody className="divide-y divide-gray-700">
             {answers.length === 0 ? (
               <tr>

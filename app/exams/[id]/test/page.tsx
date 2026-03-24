@@ -169,6 +169,8 @@ export default function TestPage() {
     ...field
   }))
 
+  console.log('Fields from exam:', fieldsArray)
+
   return (
     <div className="min-h-screen bg-gray-950 py-8 px-4">
       <div className="max-w-7xl mx-auto">
